@@ -72,7 +72,7 @@ class Command(BaseCommand):
             slug='ssd-nvme-gen5-demo',
             defaults={
                 'name': 'SSD NVMe 990 PRO 2TB',
-                'sku': 'SSD-990PRO-2TB',
+                'sku': 'SSD-990PRO-DEMO',
                 'category': category,
                 'brand': brand,
                 'description': 'SSD PCIe 4.0 de alto desempenho para workstations e setups gamer.',
