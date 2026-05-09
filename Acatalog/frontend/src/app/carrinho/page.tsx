@@ -16,9 +16,34 @@ export default function CartPage() {
   const { notify } = useToast();
   const { data: cart, isError, isLoading } = useQuery({ queryKey: ['cart'], queryFn: storeApi.cart });
   const onError = (error: unknown) => notify(apiErrorMessage(error));
-  const update = useMutation({ mutationFn: ({ id, quantity }: { id: number; quantity: number }) => storeApi.updateCartItem(id, quantity), onSuccess: () => qc.invalidateQueries({ queryKey: ['cart'] }), onError });
-  const remove = useMutation({ mutationFn: storeApi.removeCartItem, onSuccess: () => qc.invalidateQueries({ queryKey: ['cart'] }), onError });
-  const coupon = useMutation({ mutationFn: storeApi.applyCoupon, onSuccess: () => qc.invalidateQueries({ queryKey: ['cart'] }), onError });
+  
+  const update = useMutation({
+    mutationFn: ({ id, quantity }: { id: number; quantity: number }) => storeApi.updateCartItem(id, quantity),
+    onSuccess: () => {
+      // Invalidar e refetch do carrinho para recalcular subtotal, desconto e total
+      qc.invalidateQueries({ queryKey: ['cart'] });
+      notify('Quantidade atualizada com sucesso');
+    },
+    onError,
+  });
+  
+  const remove = useMutation({
+    mutationFn: storeApi.removeCartItem,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cart'] });
+      notify('Produto removido do carrinho');
+    },
+    onError,
+  });
+  
+  const coupon = useMutation({
+    mutationFn: storeApi.applyCoupon,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cart'] });
+      notify('Cupom aplicado com sucesso');
+    },
+    onError,
+  });
 
   return (
     <>
@@ -35,8 +60,29 @@ export default function CartPage() {
                   </div>
                   <div><h2 className="font-black">{item.product.name}</h2><p className="text-sm text-graphite">{formatMoney(item.unit_price)}</p><p className="mt-2 font-bold">Subtotal {formatMoney(item.subtotal)}</p></div>
                   <div className="flex items-center gap-2">
-                    <input type="number" min={1} defaultValue={item.quantity} onBlur={(e) => update.mutate({ id: item.id, quantity: Number(e.target.value) })} className="h-11 w-20 rounded-lg border border-ink/10 px-2" />
-                    <button onClick={() => remove.mutate(item.id)} className="h-11 rounded-lg border border-ink/10 px-3 font-bold">Remover</button>
+                    <input 
+                      type="number" 
+                      min={1} 
+                      defaultValue={item.quantity} 
+                      onBlur={(e) => {
+                        const newQuantity = Number(e.target.value);
+                        if (newQuantity !== item.quantity && newQuantity > 0) {
+                          update.mutate({ id: item.id, quantity: newQuantity });
+                        } else {
+                          // Restaurar valor anterior se inválido
+                          e.currentTarget.value = String(item.quantity);
+                        }
+                      }} 
+                      disabled={update.isPending}
+                      className="h-11 w-20 rounded-lg border border-ink/10 px-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                    />
+                    <button 
+                      onClick={() => remove.mutate(item.id)} 
+                      disabled={remove.isPending}
+                      className="h-11 rounded-lg border border-ink/10 px-3 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {remove.isPending ? 'Removendo...' : 'Remover'}
+                    </button>
                   </div>
                 </div>
               ))}

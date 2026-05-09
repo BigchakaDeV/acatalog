@@ -62,7 +62,13 @@ export function RegisterForm() {
   const router = useRouter();
   const { notify } = useToast();
   const mutation = useMutation({
-    mutationFn: (payload: Record<string, string>) => authApi.register(payload),
+    mutationFn: (payload: Record<string, string>) => authApi.register(
+      payload.email,
+      payload.password,
+      payload.username,
+      payload.first_name,
+      payload.last_name
+    ),
     onSuccess: () => router.push('/conta'),
     onError: (error) => notify(apiErrorMessage(error)),
   });
@@ -93,7 +99,7 @@ export function AddressForm({ onCreated }: { onCreated?: () => void }) {
   const queryClient = useQueryClient();
   const { notify } = useToast();
   const mutation = useMutation({
-    mutationFn: (payload: Record<string, string | boolean>) => storeApi.createAddress(payload),
+    mutationFn: (payload: Record<string, string | boolean>) => storeApi.addAddress(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['addresses'] });
       notify('Endereco salvo');

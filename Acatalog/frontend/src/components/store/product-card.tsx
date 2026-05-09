@@ -45,12 +45,26 @@ export function ProductCard({ product }: { product: Product }) {
   const queryClient = useQueryClient();
   const { notify } = useToast();
   const mutation = useMutation({
-    mutationFn: () => storeApi.addToCart(product.id, 1),
+    mutationFn: () => {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        throw new Error('Usuário não autenticado. Faça login para adicionar produtos ao carrinho.');
+      }
+      return storeApi.addToCart(product.id, 1);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['cart'] });
       notify('Produto adicionado ao carrinho');
     },
-    onError: (error) => notify(apiErrorMessage(error)),
+    onError: (error) => {
+      const message = apiErrorMessage(error);
+      if (message.includes('não autenticado') || message.includes('credenciais')) {
+        // Redirecionar para login se não autenticado
+        window.location.href = '/login';
+      } else {
+        notify(message);
+      }
+    },
   });
 
   return (
