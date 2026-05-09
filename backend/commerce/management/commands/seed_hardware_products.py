@@ -4,8 +4,6 @@ from decimal import Decimal
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
 
-from PIL import Image, ImageDraw, ImageFont
-
 from commerce.models import Brand, Category, Inventory, Product, ProductImage
 
 
@@ -49,34 +47,6 @@ class Command(BaseCommand):
                 defaults={"name": name, "is_featured": idx <= 8, "is_active": True},
             )
 
-    def _make_image(self, title, subtitle, seed):
-        width, height = 1280, 720
-        bg_a = (8 + (seed * 17) % 40, 24 + (seed * 11) % 60, 50 + (seed * 7) % 70)
-        bg_b = (20 + (seed * 9) % 70, 130 + (seed * 5) % 90, 170 + (seed * 3) % 70)
-        image = Image.new("RGB", (width, height), bg_a)
-        draw = ImageDraw.Draw(image)
-        for y in range(height):
-            ratio = y / max(height - 1, 1)
-            color = (
-                int(bg_a[0] * (1 - ratio) + bg_b[0] * ratio),
-                int(bg_a[1] * (1 - ratio) + bg_b[1] * ratio),
-                int(bg_a[2] * (1 - ratio) + bg_b[2] * ratio),
-            )
-            draw.line([(0, y), (width, y)], fill=color)
-
-        # Moldura e bloco de texto para parecer foto de catálogo consistente.
-        draw.rounded_rectangle((40, 40, width - 40, height - 40), radius=28, outline=(255, 255, 255), width=3)
-        draw.rounded_rectangle((90, height - 230, width - 90, height - 90), radius=18, fill=(7, 15, 30))
-        font_title = ImageFont.load_default()
-        font_subtitle = ImageFont.load_default()
-        draw.text((120, height - 205), title[:80], fill=(255, 255, 255), font=font_title)
-        draw.text((120, height - 165), subtitle[:110], fill=(180, 220, 255), font=font_subtitle)
-        draw.text((120, height - 125), "Acatalog Tech", fill=(130, 240, 220), font=font_subtitle)
-
-        output = BytesIO()
-        image.save(output, format="PNG")
-        output.seek(0)
-        return output.read()
 
     def handle(self, *args, **options):
         self._ensure_taxonomy()
@@ -125,15 +95,8 @@ class Command(BaseCommand):
                 defaults={"quantity": quantity, "reserved": 0, "low_stock_threshold": 4},
             )
 
-            image_bytes = self._make_image(name, description, index)
-            filename = f"{slug}.png"
-            image_obj = product.images.filter(is_primary=True).first()
-            if image_obj is None:
-                image_obj = ProductImage(product=product, is_primary=True, sort_order=0)
-            image_obj.alt_text = name
-            image_obj.image.save(filename, ContentFile(image_bytes), save=True)
             created_or_updated += 1
 
         self.stdout.write(
-            self.style.SUCCESS(f"Catálogo de hardware atualizado com {created_or_updated} produtos e imagens.")
+            self.style.SUCCESS(f"Catálogo de hardware atualizado com {created_or_updated} produtos (sem imagens geradas).")
         )
