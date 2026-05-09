@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import Link from 'next/link';
 import { ShieldCheck, Truck, Headphones, CreditCard } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -10,7 +11,16 @@ import { ErrorState, LoadingState } from '@/components/ui/states';
 import { storeApi } from '@/lib/api';
 
 export default function HomePage() {
-  const { data, isError, isLoading } = useQuery({ queryKey: ['home'], queryFn: storeApi.home });
+  const { data, isError, isLoading, error } = useQuery({ queryKey: ['home'], queryFn: storeApi.home });
+
+  // Debug logging
+  React.useEffect(() => {
+    if (isError && error) {
+      console.error('Home page API error:', error);
+      console.error('Error message:', (error as any)?.message);
+      console.error('Error response:', (error as any)?.response?.data);
+    }
+  }, [isError, error]);
 
   return (
     <>

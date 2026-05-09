@@ -151,7 +151,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         return ProductListSerializer
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve', 'home']:
             return [AllowAny()]
         return [IsAdminRole()]
 
@@ -184,12 +184,20 @@ class AddressViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 
-class CartViewSet(viewsets.GenericViewSet):
+class CartViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_cart(self):
         cart, _ = Cart.objects.get_or_create(user=self.request.user)
         return cart
+    
+    def get_cart_item(self, item_id):
+        """Obter item do carrinho do usuário atual (validação de segurança)"""
+        cart = self.get_cart()
+        try:
+            return CartItem.objects.get(id=item_id, cart=cart)
+        except CartItem.DoesNotExist:
+            return None
 
     @action(detail=False, methods=['get'])
     def current(self, request):
@@ -213,35 +221,148 @@ class CartViewSet(viewsets.GenericViewSet):
             item.quantity += quantity
             item.save(update_fields=['quantity'])
         return Response(CartSerializer(cart, context={'request': request}).data)
-
-    @action(detail=False, methods=['patch'], url_path='items/(?P<item_id>[^/.]+)')
-    @transaction.atomic
-    def update_item(self, request, item_id=None):
-        item = CartItem.objects.get(id=item_id, cart=self.get_cart())
-        quantity = max(int(request.data.get('quantity', 1)), 1)
+    
+    def partial_update(self, request, pk=None):
+        """Atualizar quantidade do item do carrinho (PATCH)"""
+        item = self.get_cart_item(pk)
+        if not item:
+            return Response({'detail': 'Item do carrinho não encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+        
+        quantity = request.data.get('quantity')
+        if quantity is None:
+            return Response({'detail': 'Campo quantity é obrigatório.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            quantity = max(int(quantity), 1)
+        except (ValueError, TypeError):
+            return Response({'detail': 'Quantidade deve ser um número inteiro positivo.'}, status=status.HTTP_400_BAD_REQUEST)
+        
         inventory = Inventory.objects.select_for_update().filter(product=item.product).first()
         if not inventory or inventory.available < quantity:
-            return Response({'detail': 'Estoque insuficiente.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': f'Estoque insuficiente. Disponível: {inventory.available if inventory else 0}'}, status=status.HTTP_400_BAD_REQUEST)
+        
         item.quantity = quantity
         item.save(update_fields=['quantity'])
         return Response(CartSerializer(item.cart, context={'request': request}).data)
 
+    @action(detail=False, methods=['patch'], url_path='items/(?P<item_id>[^/.]+)')
+    @transaction.atomic
+    def update_item(self, request, item_id=None):
+        """Manter compatibilidade com rota customizada"""
+        return self.partial_update(request, pk=item_id)
+
     @action(detail=False, methods=['delete'], url_path='items/(?P<item_id>[^/.]+)')
     def remove_item(self, request, item_id=None):
-        cart = self.get_cart()
-        CartItem.objects.filter(id=item_id, cart=cart).delete()
+        """Remover item do carrinho do usuário"""
+        item = self.get_cart_item(item_id)
+        if not item:
+            return Response({'detail': 'Item do carrinho não encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+        
+        cart = item.cart
+        item.delete()
         return Response(CartSerializer(cart, context={'request': request}).data)
 
     @action(detail=False, methods=['post'])
+    @transaction.atomic
     def coupon(self, request):
+        """Aplicar cupom de desconto ao carrinho"""
         cart = self.get_cart()
         code = request.data.get('code', '').strip().upper()
+        if not code:
+            return Response({'detail': 'Código do cupom é obrigatório.'}, status=status.HTTP_400_BAD_REQUEST)
+        
         coupon = Coupon.objects.filter(code__iexact=code).first()
         if not coupon or not coupon.is_valid():
-            return Response({'detail': 'Cupom invalido ou expirado.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Cupom inválido ou expirado.'}, status=status.HTTP_400_BAD_REQUEST)
+        
         cart.coupon = coupon
         cart.save(update_fields=['coupon'])
         return Response(CartSerializer(cart, context={'request': request}).data)
+
+
+class CartItemViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gerenciar itens do carrinho.
+    Permite listar, criar, atualizar (PATCH/PUT), e deletar itens.
+    Apenas o dono do carrinho pode modificar seus itens.
+    """
+    serializer_class = CartItemSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'patch', 'put', 'delete', 'head', 'options']
+    
+    def get_queryset(self):
+        """Retornar apenas itens do carrinho do usuário autenticado"""
+        cart, _ = Cart.objects.get_or_create(user=self.request.user)
+        return CartItem.objects.filter(cart=cart).select_related('product', 'product__brand', 'product__category')
+    
+    def get_object(self):
+        """Obter um item específico e validar que pertence ao carrinho do usuário"""
+        obj = super().get_object()
+        cart, _ = Cart.objects.get_or_create(user=self.request.user)
+        
+        # Validar que o item pertence ao carrinho do usuário
+        if obj.cart != cart:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Você não tem permissão para acessar este item do carrinho.')
+        
+        return obj
+    
+    def perform_create(self, serializer):
+        """Criar novo item no carrinho do usuário"""
+        cart, _ = Cart.objects.get_or_create(user=self.request.user)
+        serializer.save(cart=cart)
+    
+    @transaction.atomic
+    def partial_update(self, request, *args, **kwargs):
+        """
+        Atualizar (PATCH) a quantidade de um item do carrinho.
+        Valida estoque antes de atualizar.
+        """
+        instance = self.get_object()
+        quantity = request.data.get('quantity')
+        
+        if quantity is None:
+            return Response({'detail': 'Campo quantity é obrigatório.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            quantity = max(int(quantity), 1)
+        except (ValueError, TypeError):
+            return Response({'detail': 'Quantidade deve ser um número inteiro positivo.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validar estoque
+        inventory = Inventory.objects.select_for_update().filter(product=instance.product).first()
+        if not inventory or inventory.available < quantity:
+            available = inventory.available if inventory else 0
+            return Response(
+                {'detail': f'Estoque insuficiente. Disponível: {available}'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Atualizar quantidade
+        instance.quantity = quantity
+        instance.save(update_fields=['quantity'])
+        
+        # Retornar o cart atualizado para recalcular totais
+        serializer = CartSerializer(instance.cart, context={'request': request})
+        return Response(serializer.data)
+    
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        """
+        Atualizar (PUT) um item do carrinho.
+        Requerido para compatibilidade com REST padrão.
+        """
+        return self.partial_update(request, *args, **kwargs)
+    
+    def destroy(self, request, *args, **kwargs):
+        """Remover um item do carrinho"""
+        instance = self.get_object()
+        cart = instance.cart
+        instance.delete()
+        
+        # Retornar o cart atualizado para recalcular totais
+        serializer = CartSerializer(cart, context={'request': request})
+        return Response(serializer.data)
 
 
 class OrderViewSet(viewsets.ModelViewSet):
