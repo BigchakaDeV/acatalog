@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Header } from '@/components/store/header';
@@ -9,13 +8,14 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/states';
 import { apiErrorMessage, formatMoney, storeApi } from '@/lib/api';
 import type { WishlistItem } from '@/lib/types';
 import { useToast } from '@/components/ui/toast-provider';
+import { addToCart as addToCartHybrid } from '@/lib/cart-service';
 
 export default function WishlistPage() {
   const queryClient = useQueryClient();
   const { notify } = useToast();
   const query = useQuery<WishlistItem[]>({ queryKey: ['wishlist'], queryFn: storeApi.wishlist });
   const remove = useMutation({ mutationFn: storeApi.removeWishlist, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['wishlist'] }), onError: (error) => notify(apiErrorMessage(error)) });
-  const move = useMutation({ mutationFn: (productId: number) => storeApi.addToCart(productId, 1), onSuccess: () => notify('Produto movido para carrinho'), onError: (error) => notify(apiErrorMessage(error)) });
+  const move = useMutation({ mutationFn: (item: WishlistItem) => addToCartHybrid(item.product, 1), onSuccess: () => notify('Produto movido para carrinho'), onError: (error) => notify(apiErrorMessage(error)) });
 
   return (
     <>
@@ -28,8 +28,8 @@ export default function WishlistPage() {
           <div className="grid gap-4 md:grid-cols-2">
             {query.data.map((item) => (
               <div key={item.id} className="surface grid gap-4 rounded-lg p-4 sm:grid-cols-[120px_1fr]">
-                <div className="relative aspect-square rounded-lg bg-white">{item.product.primary_image?.image ? <Image src={item.product.primary_image.image} alt={item.product.name} fill className="object-cover" /> : null}</div>
-                <div><h2 className="font-black">{item.product.name}</h2><p className="mt-2 font-bold">{formatMoney(item.product.current_price)}</p><div className="mt-4 flex gap-2"><button onClick={() => move.mutate(item.product.id)} className="min-h-11 rounded-lg bg-ink px-4 font-bold text-white">Mover ao carrinho</button><button onClick={() => remove.mutate(item.id)} className="min-h-11 rounded-lg border border-ink/10 px-4 font-bold">Remover</button></div></div>
+                <div className="relative aspect-square rounded-lg bg-[var(--ui-surface)]">{item.product.primary_image?.image ? <img src={item.product.primary_image.image} alt={item.product.name} className="h-full w-full object-cover" /> : null}</div>
+                <div><h2 className="font-black text-[var(--ui-text)]">{item.product.name}</h2><p className="mt-2 font-bold">{formatMoney(item.product.current_price)}</p><div className="mt-4 flex gap-2"><button onClick={() => move.mutate(item)} className="min-h-11 rounded-lg bg-ink px-4 font-bold text-white">Mover ao carrinho</button><button onClick={() => remove.mutate(item.id)} className="min-h-11 rounded-lg border border-ink/10 px-4 font-bold">Remover</button></div></div>
               </div>
             ))}
           </div>

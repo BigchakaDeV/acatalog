@@ -56,6 +56,16 @@ npm.cmd run dev -- -p 3001
 Loja: `http://localhost:3001/`
 Dashboard: `http://localhost:3001/admin`
 
+Se no Windows aparecer `Error: spawn EPERM` no `npm run dev`, use modo estavel:
+
+```powershell
+cd "C:\Users\cezar\Desktop\loja informatica\frontend"
+npm.cmd run build
+npm.cmd run start -- -H 127.0.0.1 -p 3001
+```
+
+Nesse ambiente, prefira acessar por `http://127.0.0.1:3001/` (em vez de `localhost`).
+
 Se usar outra API:
 
 ```powershell

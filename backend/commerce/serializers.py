@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.db import models, transaction
+from django.db.models import Q
 from django.db.models import Avg
 from rest_framework import serializers
 from google.auth.transport import requests as google_requests
@@ -40,14 +41,16 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.CharField(trim_whitespace=True)
     password = serializers.CharField()
 
     def validate(self, attrs):
-        try:
-            user_obj = User.objects.get(email=attrs['email'])
-        except User.DoesNotExist as exc:
-            raise serializers.ValidationError('Credenciais invalidas.') from exc
+        identifier = attrs['email'].strip()
+        if not identifier:
+            raise serializers.ValidationError('Credenciais invalidas.')
+        user_obj = User.objects.filter(Q(email__iexact=identifier) | Q(username__iexact=identifier)).first()
+        if not user_obj:
+            raise serializers.ValidationError('Credenciais invalidas.')
         user = authenticate(username=user_obj.username, password=attrs['password'])
         if not user:
             raise serializers.ValidationError('Credenciais invalidas.')
@@ -120,6 +123,14 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class ProductImageImportByUrlSerializer(serializers.Serializer):
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
+    urls = serializers.ListField(child=serializers.URLField(), allow_empty=False)
+    alt_text = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    start_sort_order = serializers.IntegerField(required=False, min_value=0)
+    set_first_as_primary = serializers.BooleanField(required=False, default=False)
+
+
 class ProductListSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     brand = BrandSerializer(read_only=True)
@@ -156,6 +167,11 @@ class AdminProductSerializer(serializers.ModelSerializer):
     inventory = InventorySerializer(required=False)
     category_id = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all(), source='category', write_only=True)
     brand_id = serializers.PrimaryKeyRelatedField(queryset=Brand.objects.all(), source='brand', write_only=True)
+    category = CategorySerializer(read_only=True)
+    brand = BrandSerializer(read_only=True)
+    current_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    in_stock = serializers.BooleanField(read_only=True)
+    primary_image = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -163,9 +179,13 @@ class AdminProductSerializer(serializers.ModelSerializer):
             'id', 'name', 'slug', 'sku', 'category', 'brand', 'category_id', 'brand_id',
             'description', 'specifications', 'price', 'promotional_price', 'is_active',
             'is_featured', 'is_new', 'is_best_seller', 'average_rating', 'sold_count',
-            'inventory',
+            'current_price', 'in_stock', 'primary_image', 'inventory',
         )
         read_only_fields = ('category', 'brand', 'average_rating', 'sold_count')
+
+    def get_primary_image(self, obj):
+        image = obj.images.filter(is_primary=True).first() or obj.images.first()
+        return ProductImageSerializer(image, context=self.context).data if image else None
 
     def create(self, validated_data):
         inventory_data = validated_data.pop('inventory', {})

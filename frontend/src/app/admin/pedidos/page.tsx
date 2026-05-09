@@ -5,6 +5,7 @@ import { AdminLayout, OrderStatusBadge } from '@/components/admin/admin-layout';
 import { adminApi, apiErrorMessage, formatMoney } from '@/lib/api';
 import { useToast } from '@/components/ui/toast-provider';
 import type { Order } from '@/lib/types';
+import { ErrorState, LoadingState } from '@/components/ui/states';
 
 export default function AdminOrdersPage() {
   const qc = useQueryClient();
@@ -19,8 +20,10 @@ export default function AdminOrdersPage() {
     <AdminLayout>
       <h1 className="mb-4 text-2xl font-black">Pedidos</h1>
       <div className="surface rounded-lg p-5">
-        {orders.data?.map((order) => <div key={order.id} className="grid gap-3 border-b border-ink/10 py-3 md:grid-cols-[1fr_1fr_auto_auto]"><strong>#{order.id}</strong><span>{formatMoney(order.total)}</span><OrderStatusBadge status={order.status} /><select defaultValue={order.status} onChange={(e) => update.mutate({ id: order.id, status: e.target.value })} className="rounded-lg border border-ink/10 px-2"><option value="pending">pendente</option><option value="paid">pago</option><option value="shipped">enviado</option><option value="delivered">entregue</option><option value="canceled">cancelado</option></select></div>)}
-        {!orders.data?.length ? <p className="text-sm text-graphite">Nenhum pedido encontrado.</p> : null}
+        {orders.isLoading ? <LoadingState label="Carregando pedidos" /> : null}
+        {orders.isError ? <ErrorState title="Pedidos indisponiveis" description="Verifique o login administrativo e se a API esta online." /> : null}
+        {!orders.isLoading && !orders.isError ? orders.data?.map((order) => <div key={order.id} className="grid gap-3 border-b border-ink/10 py-3 md:grid-cols-[1fr_1fr_auto_auto]"><strong>#{order.id}</strong><span>{formatMoney(order.total)}</span><OrderStatusBadge status={order.status} /><select defaultValue={order.status} onChange={(e) => update.mutate({ id: order.id, status: e.target.value })} className="rounded-lg border border-ink/10 px-2"><option value="pending">pendente</option><option value="paid">pago</option><option value="shipped">enviado</option><option value="delivered">entregue</option><option value="canceled">cancelado</option></select></div>) : null}
+        {!orders.isLoading && !orders.isError && !orders.data?.length ? <p className="text-sm text-graphite">Nenhum pedido encontrado.</p> : null}
       </div>
     </AdminLayout>
   );

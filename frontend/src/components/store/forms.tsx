@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Globe2, MapPin } from 'lucide-react';
@@ -27,12 +27,31 @@ export function GoogleLoginButton() {
 
 export function LoginForm({ admin = false }: { admin?: boolean }) {
   const router = useRouter();
+  const [nextRoute, setNextRoute] = useState('');
   const { notify } = useToast();
   const [error, setError] = useState('');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const next = new URLSearchParams(window.location.search).get('next') ?? '';
+    if (next) setNextRoute(next);
+    if (!admin) return;
+    const params = new URLSearchParams(window.location.search);
+    const emailParam = params.get('email') ?? '';
+    const passwordParam = params.get('password') ?? '';
+    if (emailParam) setIdentifier(emailParam);
+    if (passwordParam) setPassword(passwordParam);
+    if (emailParam || passwordParam) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [admin]);
   const mutation = useMutation({
     mutationFn: (payload: { email: string; password: string }) =>
       admin ? authApi.adminLogin(payload.email, payload.password) : authApi.login(payload.email, payload.password),
-    onSuccess: () => router.push(admin ? '/admin' : '/conta'),
+    onSuccess: () => {
+      router.push(nextRoute || (admin ? '/admin' : '/conta'));
+    },
     onError: (err) => {
       const message = apiErrorMessage(err);
       setError(message);
@@ -45,8 +64,8 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
       const form = new FormData(event.currentTarget);
       mutation.mutate({ email: String(form.get('email')), password: String(form.get('password')) });
     }}>
-      <input name="email" type="email" placeholder={admin ? 'E-mail administrativo' : 'E-mail'} className="min-h-11 rounded-lg border border-ink/10 px-3" required />
-      <input name="password" type="password" placeholder="Senha" className="min-h-11 rounded-lg border border-ink/10 px-3" required />
+      <input name="email" type={admin ? 'text' : 'email'} placeholder={admin ? 'E-mail ou usuario administrativo' : 'E-mail'} value={identifier} onChange={(event) => setIdentifier(event.target.value)} className="min-h-11 rounded-lg border border-ink/10 px-3" required />
+      <input name="password" type="password" placeholder="Senha" value={password} onChange={(event) => setPassword(event.target.value)} className="min-h-11 rounded-lg border border-ink/10 px-3" required />
       {error ? <p className="rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
       <button disabled={mutation.isPending} className="min-h-11 rounded-lg bg-ink px-4 font-bold text-white">{mutation.isPending ? 'Entrando...' : admin ? 'Entrar no dashboard' : 'Entrar'}</button>
       {!admin ? <GoogleLoginButton /> : null}

@@ -29,19 +29,56 @@ class Command(BaseCommand):
             customer.save()
         Cart.objects.get_or_create(user=customer)
 
-        category, _ = Category.objects.get_or_create(name='Hardware', slug='hardware', defaults={'is_featured': True, 'sort_order': 1})
-        brand, _ = Brand.objects.get_or_create(name='Acatalog Pro', slug='acatalog-pro', defaults={'is_featured': True})
+        categories = [
+            ('Placas de vídeo', 'placas-de-video'),
+            ('Processadores', 'processadores'),
+            ('Placas-mãe', 'placas-mae'),
+            ('Memórias RAM', 'memorias-ram'),
+            ('SSDs e armazenamento', 'ssds-e-armazenamento'),
+            ('Fontes', 'fontes'),
+            ('Gabinetes', 'gabinetes'),
+            ('Monitores', 'monitores'),
+            ('Periféricos gamer', 'perifericos-gamer'),
+            ('Notebooks', 'notebooks'),
+        ]
+        brands = [
+            ('Intel', 'intel'),
+            ('AMD', 'amd'),
+            ('NVIDIA', 'nvidia'),
+            ('ASUS', 'asus'),
+            ('Gigabyte', 'gigabyte'),
+            ('MSI', 'msi'),
+            ('Corsair', 'corsair'),
+            ('Kingston', 'kingston'),
+            ('Samsung', 'samsung'),
+            ('Dell', 'dell'),
+            ('Logitech', 'logitech'),
+        ]
+
+        for idx, (name, slug) in enumerate(categories, start=1):
+            Category.objects.update_or_create(
+                slug=slug,
+                defaults={'name': name, 'is_featured': idx <= 6, 'sort_order': idx},
+            )
+        for idx, (name, slug) in enumerate(brands, start=1):
+            Brand.objects.update_or_create(
+                slug=slug,
+                defaults={'name': name, 'is_featured': idx <= 8},
+            )
+
+        category = Category.objects.get(slug='ssds-e-armazenamento')
+        brand = Brand.objects.get(slug='samsung')
         product, _ = Product.objects.update_or_create(
             slug='ssd-nvme-gen5-demo',
             defaults={
-                'name': 'SSD NVMe Gen5 Demo 2TB',
-                'sku': 'SSD-GEN5-DEMO',
+                'name': 'SSD NVMe 990 PRO 2TB',
+                'sku': 'SSD-990PRO-2TB',
                 'category': category,
                 'brand': brand,
-                'description': 'Produto demo para validar catalogo, carrinho, cupom e checkout.',
-                'specifications': {'Capacidade': '2TB', 'Leitura': '12000 MB/s', 'Interface': 'PCIe 5.0'},
-                'price': Decimal('1299.90'),
-                'promotional_price': Decimal('999.90'),
+                'description': 'SSD PCIe 4.0 de alto desempenho para workstations e setups gamer.',
+                'specifications': {'Capacidade': '2TB', 'Leitura': '7450 MB/s', 'Interface': 'PCIe 4.0'},
+                'price': Decimal('1199.90'),
+                'promotional_price': Decimal('899.90'),
                 'is_active': True,
                 'is_featured': True,
                 'is_new': True,

@@ -1,12 +1,15 @@
 from django.contrib.auth import get_user_model
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.db import models, transaction
 from django.db.models import Sum
 from django.db.models.functions import TruncDate
+from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .filters import ProductFilter
@@ -19,9 +22,15 @@ from .serializers import (
     AddressSerializer, AdminProductSerializer, BrandSerializer, CartItemSerializer,
     CartSerializer, CategorySerializer, CheckoutSerializer, CouponSerializer,
     GoogleLoginSerializer, LoginSerializer, OrderSerializer, ProductDetailSerializer,
-    ProductImageSerializer, ProductListSerializer, PromotionSerializer,
+    ProductImageImportByUrlSerializer, ProductImageSerializer, ProductListSerializer, PromotionSerializer,
     RegisterSerializer, ReviewSerializer, UserSerializer, WishlistSerializer,
 )
+from ipaddress import ip_address
+from pathlib import Path
+from urllib.parse import urlparse
+import socket
+import uuid
+import urllib.request as urlrequest
 
 User = get_user_model()
 
@@ -92,7 +101,10 @@ def refresh_access(request):
     token = request.COOKIES.get('refresh_token')
     if not token:
         return Response({'detail': 'Refresh token ausente.'}, status=status.HTTP_401_UNAUTHORIZED)
-    refresh = RefreshToken(token)
+    try:
+        refresh = RefreshToken(token)
+    except TokenError:
+        return Response({'detail': 'Refresh token invalido.'}, status=status.HTTP_401_UNAUTHORIZED)
     return Response({'access': str(refresh.access_token)})
 
 
@@ -115,7 +127,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve', 'home']:
             return [AllowAny()]
         return [IsAdminRole()]
 
@@ -125,7 +137,7 @@ class BrandViewSet(viewsets.ModelViewSet):
     serializer_class = BrandSerializer
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve', 'home']:
             return [AllowAny()]
         return [IsAdminRole()]
 
@@ -151,7 +163,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         return ProductListSerializer
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve', 'home']:
             return [AllowAny()]
         return [IsAdminRole()]
 
@@ -171,6 +183,137 @@ class ProductImageViewSet(viewsets.ModelViewSet):
     queryset = ProductImage.objects.select_related('product')
     serializer_class = ProductImageSerializer
     permission_classes = [IsAdminRole]
+
+    @staticmethod
+    def _host_is_private(hostname):
+        if not hostname:
+            return True
+        if hostname in {'localhost'}:
+            return True
+        try:
+            infos = socket.getaddrinfo(hostname, None)
+        except socket.gaierror:
+            return True
+        for info in infos:
+            address = info[4][0]
+            ip = ip_address(address)
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_multicast
+                or ip.is_reserved
+                or ip.is_unspecified
+            ):
+                return True
+        return False
+
+    @action(detail=False, methods=['post'], url_path='import-by-url')
+    def import_by_url(self, request):
+        serializer = ProductImageImportByUrlSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        product = validated['product']
+        urls = validated['urls']
+        alt_text = validated.get('alt_text', '')
+        set_first_as_primary = validated.get('set_first_as_primary', False)
+
+        max_images = 6
+        max_bytes = 5 * 1024 * 1024
+        allowed_types = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}
+        timeout = 10
+        current_count = product.images.count()
+        available_slots = max(max_images - current_count, 0)
+        start_sort = validated.get('start_sort_order')
+        if start_sort is None:
+            last = product.images.order_by('-sort_order').first()
+            start_sort = (last.sort_order + 1) if last else 0
+
+        created = []
+        errors = []
+        first_primary_set = False
+
+        if available_slots == 0:
+            return Response(
+                {'created': [], 'errors': [{'url': '', 'reason': f'Limite de {max_images} imagens ja atingido para este produto.'}]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for index, raw_url in enumerate(urls):
+            url = raw_url.strip()
+            if not url:
+                errors.append({'url': raw_url, 'reason': 'URL vazia.'})
+                continue
+            if len(created) >= available_slots:
+                errors.append({'url': url, 'reason': f'Limite de {max_images} imagens por produto atingido.'})
+                continue
+
+            parsed = urlparse(url)
+            if parsed.scheme not in {'http', 'https'}:
+                errors.append({'url': url, 'reason': 'URL deve usar http ou https.'})
+                continue
+            if self._host_is_private(parsed.hostname):
+                errors.append({'url': url, 'reason': 'Origem bloqueada por politica de seguranca.'})
+                continue
+
+            try:
+                req = urlrequest.Request(url, headers={'User-Agent': 'AcatalogBot/1.0'})
+                with urlrequest.urlopen(req, timeout=timeout) as response:
+                    content_type_header = (response.headers.get('Content-Type') or '').split(';')[0].strip().lower()
+                    if content_type_header not in allowed_types:
+                        errors.append({'url': url, 'reason': 'Tipo de arquivo nao suportado (use JPG, PNG ou WEBP).'})
+                        continue
+                    content_length = response.headers.get('Content-Length')
+                    if content_length and int(content_length) > max_bytes:
+                        errors.append({'url': url, 'reason': 'Imagem excede 5MB.'})
+                        continue
+
+                    chunks = []
+                    total = 0
+                    while True:
+                        chunk = response.read(64 * 1024)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > max_bytes:
+                            chunks = []
+                            break
+                        chunks.append(chunk)
+
+                    if not chunks:
+                        errors.append({'url': url, 'reason': 'Imagem excede 5MB.'})
+                        continue
+
+                    image_bytes = b''.join(chunks)
+                    ext = allowed_types[content_type_header]
+                    parsed_ext = Path(parsed.path).suffix.lower()
+                    filename_ext = parsed_ext if parsed_ext in {'.jpg', '.jpeg', '.png', '.webp'} else ext
+                    filename = f'product-import-{uuid.uuid4().hex}{filename_ext}'
+
+                    is_primary = bool(set_first_as_primary and not first_primary_set)
+                    if is_primary:
+                        product.images.filter(is_primary=True).update(is_primary=False)
+                        first_primary_set = True
+
+                    image_obj = ProductImage(
+                        product=product,
+                        alt_text=alt_text or product.name,
+                        is_primary=is_primary,
+                        sort_order=start_sort + index,
+                    )
+                    image_obj.image.save(filename, ContentFile(image_bytes), save=True)
+                    created.append(image_obj)
+            except Exception:
+                errors.append({'url': url, 'reason': 'Falha ao baixar imagem desse link.'})
+
+        return Response(
+            {
+                'created': ProductImageSerializer(created, many=True, context={'request': request}).data,
+                'errors': errors,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class AddressViewSet(viewsets.ModelViewSet):
@@ -214,23 +357,24 @@ class CartViewSet(viewsets.GenericViewSet):
             item.save(update_fields=['quantity'])
         return Response(CartSerializer(cart, context={'request': request}).data)
 
-    @action(detail=False, methods=['patch'], url_path='items/(?P<item_id>[^/.]+)')
+    @action(detail=False, methods=['patch', 'delete'], url_path='items/(?P<item_id>[^/.]+)')
     @transaction.atomic
-    def update_item(self, request, item_id=None):
-        item = CartItem.objects.get(id=item_id, cart=self.get_cart())
-        quantity = max(int(request.data.get('quantity', 1)), 1)
+    def item(self, request, item_id=None):
+        cart = self.get_cart()
+        item = get_object_or_404(CartItem, id=item_id, cart=cart)
+        if request.method == 'DELETE':
+            item.delete()
+            return Response(CartSerializer(cart, context={'request': request}).data)
+        try:
+            quantity = max(int(request.data.get('quantity', 1)), 1)
+        except (TypeError, ValueError):
+            return Response({'detail': 'Quantidade invalida.'}, status=status.HTTP_400_BAD_REQUEST)
         inventory = Inventory.objects.select_for_update().filter(product=item.product).first()
         if not inventory or inventory.available < quantity:
             return Response({'detail': 'Estoque insuficiente.'}, status=status.HTTP_400_BAD_REQUEST)
         item.quantity = quantity
         item.save(update_fields=['quantity'])
         return Response(CartSerializer(item.cart, context={'request': request}).data)
-
-    @action(detail=False, methods=['delete'], url_path='items/(?P<item_id>[^/.]+)')
-    def remove_item(self, request, item_id=None):
-        cart = self.get_cart()
-        CartItem.objects.filter(id=item_id, cart=cart).delete()
-        return Response(CartSerializer(cart, context={'request': request}).data)
 
     @action(detail=False, methods=['post'])
     def coupon(self, request):

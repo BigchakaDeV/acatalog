@@ -12,7 +12,7 @@ import { storeApi } from '@/lib/api';
 
 export default function CatalogPage() {
   return (
-    <Suspense fallback={<><Header /><main className="mx-auto max-w-7xl px-4 py-8"><LoadingState label="Preparando catalogo" /></main></>}>
+    <Suspense fallback={<><Header /><main className="mx-auto max-w-7xl px-4 py-8"><LoadingState label="Preparando catálogo" /></main></>}>
       <CatalogContent />
     </Suspense>
   );
@@ -29,23 +29,26 @@ function CatalogContent() {
     <>
       <Header />
       <main className="mx-auto max-w-7xl px-4 py-8">
-        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="font-bold uppercase text-circuit">Catalogo</p>
-            <h1 className="text-3xl font-black">Produtos de tecnologia</h1>
+        <section className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-6">
+          <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-circuit">Catálogo técnico</p>
+              <h1 className="text-3xl font-black text-[var(--ui-text)]">Produtos de alta performance</h1>
+              <p className="m-0 text-sm text-graphite">Selecione por categoria, marca, faixa de preço e disponibilidade para acelerar sua decisão.</p>
+            </div>
+            <select className="min-h-11 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3">
+              <option>Relevância comercial</option>
+              <option>Menor preço</option>
+              <option>Maior preço</option>
+              <option>Em promoção</option>
+              <option>Mais vendidos</option>
+            </select>
           </div>
-          <select className="min-h-11 rounded-lg border border-ink/10 bg-white px-3">
-            <option>Relevancia</option>
-            <option>Menor preco</option>
-            <option>Maior preco</option>
-            <option>Promocao</option>
-            <option>Mais vendidos</option>
-          </select>
-        </div>
-        <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-          <FilterSidebar categories={categories.data ?? []} brands={brands.data ?? []} />
-          {products.isLoading ? <LoadingState label="Buscando produtos" /> : products.isError ? <ErrorState title="Falha ao carregar catalogo" description="Confira se o backend esta rodando e tente novamente." /> : <ProductGrid products={products.data ?? []} />}
-        </div>
+          <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+            <FilterSidebar categories={categories.data ?? []} brands={brands.data ?? []} />
+            {products.isLoading ? <LoadingState label="Buscando produtos" /> : products.isError ? <ErrorState title="Falha ao carregar catálogo" description="Confira se o backend está rodando e tente novamente." /> : <ProductGrid products={products.data ?? []} />}
+          </div>
+        </section>
       </main>
       <Footer />
     </>

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/admin/admin-layout';
 import { adminApi, apiErrorMessage } from '@/lib/api';
 import { useToast } from '@/components/ui/toast-provider';
+import { ErrorState, LoadingState } from '@/components/ui/states';
 
 const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
@@ -30,7 +31,9 @@ export default function AdminCategoriesPage() {
           <input name="sort_order" type="number" placeholder="Ordem na home" className="min-h-11 rounded-lg border border-ink/10 px-3" />
           <label className="flex items-center gap-2"><input name="is_featured" type="checkbox" /> Aparece na home</label>
           <button className="min-h-11 rounded-lg bg-ink px-4 font-bold text-white">Salvar</button>
-          <div className="grid gap-2 text-sm">{categories.data?.map((item) => <span key={item.id}>{item.name}</span>)}</div>
+          {categories.isLoading ? <LoadingState label="Carregando categorias" /> : null}
+          {categories.isError ? <ErrorState title="Categorias indisponiveis" description="Verifique o login administrativo e se a API esta online." /> : null}
+          {!categories.isLoading && !categories.isError ? <div className="grid gap-2 text-sm">{categories.data?.map((item) => <span key={item.id}>{item.name}</span>)}</div> : null}
         </form>
         <form className="surface grid gap-3 rounded-lg p-5" onSubmit={(event) => {
           event.preventDefault();
@@ -42,7 +45,9 @@ export default function AdminCategoriesPage() {
           <input name="name" placeholder="Nome" className="min-h-11 rounded-lg border border-ink/10 px-3" required />
           <label className="flex items-center gap-2"><input name="is_featured" type="checkbox" /> Aparece na home</label>
           <button className="min-h-11 rounded-lg bg-ink px-4 font-bold text-white">Salvar</button>
-          <div className="grid gap-2 text-sm">{brands.data?.map((item) => <span key={item.id}>{item.name}</span>)}</div>
+          {brands.isLoading ? <LoadingState label="Carregando marcas" /> : null}
+          {brands.isError ? <ErrorState title="Marcas indisponiveis" description="Verifique o login administrativo e se a API esta online." /> : null}
+          {!brands.isLoading && !brands.isError ? <div className="grid gap-2 text-sm">{brands.data?.map((item) => <span key={item.id}>{item.name}</span>)}</div> : null}
         </form>
       </div>
     </AdminLayout>

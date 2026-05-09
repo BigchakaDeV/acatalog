@@ -12,15 +12,26 @@ import { ErrorState, LoadingState } from '@/components/ui/states';
 import { apiErrorMessage, storeApi } from '@/lib/api';
 import type { Address } from '@/lib/types';
 import { useToast } from '@/components/ui/toast-provider';
+import { getCart, isAuthenticated, syncGuestCartToApi } from '@/lib/cart-service';
+import { STATIC_SHIPPING } from '@/lib/commerce';
+import { formatMoney } from '@/lib/api';
 
 export default function CheckoutPage() {
   const router = useRouter();
   const { notify } = useToast();
+  const authenticated = isAuthenticated();
   const [addressId, setAddressId] = useState<number | null>(null);
-  const cart = useQuery({ queryKey: ['cart'], queryFn: storeApi.cart });
-  const addresses = useQuery<Address[]>({ queryKey: ['addresses'], queryFn: storeApi.addresses });
+  const cart = useQuery({
+    queryKey: ['cart-checkout', authenticated ? 'auth' : 'guest'],
+    queryFn: async () => {
+      if (!authenticated) return null;
+      await syncGuestCartToApi();
+      return getCart();
+    },
+  });
+  const addresses = useQuery<Address[]>({ queryKey: ['addresses'], queryFn: storeApi.addresses, enabled: authenticated });
   const checkout = useMutation({
-    mutationFn: () => storeApi.checkout({ address_id: addressId!, payment_method: 'mock_card' }),
+    mutationFn: () => storeApi.checkout({ address_id: addressId!, payment_method: 'card' }),
     onSuccess: (order) => router.push(`/checkout/sucesso?pedido=${order.id}`),
     onError: (error) => notify(apiErrorMessage(error)),
   });
@@ -29,6 +40,14 @@ export default function CheckoutPage() {
     <>
       <Header />
       <main className="mx-auto max-w-5xl px-4 py-8">
+        {!authenticated ? (
+          <section className="surface rounded-lg p-6">
+            <h1 className="text-2xl font-black">Checkout requer login</h1>
+            <p className="mt-2 text-sm text-graphite">Entre para finalizar o pedido. Seu carrinho atual sera mantido.</p>
+            <button type="button" onClick={() => router.push('/login?next=/checkout')} className="mt-4 min-h-11 rounded-lg bg-ink px-4 font-bold text-white">Entrar para finalizar</button>
+          </section>
+        ) : (
+          <>
         <CheckoutSteps step={1} />
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
           <section className="surface rounded-lg p-5">
@@ -42,14 +61,17 @@ export default function CheckoutPage() {
           </section>
           <aside className="glass h-fit rounded-xl p-5">
             <h2 className="text-lg font-black">Pagamento</h2>
+            <p className="mt-2 text-xs text-graphite">Frete fixo nacional vigente: {formatMoney(STATIC_SHIPPING)}</p>
             <div className="mt-4 grid gap-2">
-              {['Cartao mock', 'Stripe previsto', 'Mercado Pago previsto', 'Pix mock'].map((item, index) => <label key={item} className="rounded-lg border border-ink/10 bg-white p-3"><input name="payment" type="radio" className="mr-2" defaultChecked={index === 0} /> {item}</label>)}
+              {['Cartao de credito', 'Pix', 'Boleto'].map((item, index) => <label key={item} className="rounded-lg border border-ink/10 bg-[var(--ui-surface)] p-3"><input name="payment" type="radio" className="mr-2" defaultChecked={index === 0} /> {item}</label>)}
             </div>
             <div className="my-4">{cart.data ? <CartSummary cart={cart.data} /> : cart.isLoading ? <LoadingState label="Carregando resumo" /> : <ErrorState title="Resumo indisponivel" description="Nao foi possivel carregar o carrinho." />}</div>
             <button disabled={!addressId || checkout.isPending} onClick={() => checkout.mutate()} className="mt-4 min-h-12 w-full rounded-lg bg-circuit px-4 font-black text-white disabled:opacity-50">{checkout.isPending ? 'Criando pedido...' : 'Criar pedido'}</button>
             <p className="mt-3 text-xs text-graphite">A confirmacao cria pedido pela API com snapshot dos itens e status de pagamento.</p>
           </aside>
         </div>
+          </>
+        )}
       </main>
       <Footer />
     </>
